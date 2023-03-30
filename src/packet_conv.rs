@@ -70,58 +70,67 @@ pub fn translate_packet(
     Ok(())
 }
 
-pub fn packet_ip_wrap_to_ether(
-    frame: &[u8],
+
+/// This function need IP packet to be at position frame[14..]
+/// It will add ethernet header to the [0..14] position of the frame
+/// Additionally it will translate IP address to the new subnet
+/// For example 10.10.10.5 will be translated to 20.20.20.5
+/// if src_subnet is 10.10.10.0 and dst_subnet is 20.20.20.0
+/// Additionally it will fix checksums for IP and TCP/UDP
+///
+/// Note: This function is done 100% in place, without copying or allocating memory
+pub fn packet_ip_wrap_to_ether_in_place(
+    frame: &mut [u8],
     src_mac: Option<&[u8; 6]>,
     dst_mac: Option<&[u8; 6]>,
     src_subnet: Option<&[u8; 4]>,
     dst_subnet: Option<&[u8; 4]>,
-) -> Result<Vec<u8>, Error> {
-    if frame.is_empty() {
+) -> Result<(), Error> {
+    if frame.len() <= 14 {
         return Err(Error::Other(
             "Error when wrapping IP packet: Empty packet".into(),
         ));
     }
-    if let Err(err) = IpPacket::peek(frame) {
+    if let Err(err) = IpPacket::peek(&frame[14..]) {
         return Err(Error::PacketMalformed(format!(
             "Error when wrapping IP packet {err}"
         )));
     }
 
-    let mut eth_packet = vec![0u8; frame.len() + 14];
     if let Some(dst_mac) = dst_mac {
-        eth_packet[EtherField::DST_MAC].copy_from_slice(dst_mac);
+        frame[EtherField::DST_MAC].copy_from_slice(dst_mac);
     } else {
         const DEFAULT_DST_MAC: &[u8; 6] = &[0x02, 0x02, 0x02, 0x02, 0x02, 0x02];
-        eth_packet[EtherField::DST_MAC].copy_from_slice(DEFAULT_DST_MAC);
+        frame[EtherField::DST_MAC].copy_from_slice(DEFAULT_DST_MAC);
     }
     if let Some(src_mac) = src_mac {
-        eth_packet[EtherField::SRC_MAC].copy_from_slice(src_mac);
+        frame[EtherField::SRC_MAC].copy_from_slice(src_mac);
     } else {
         const DEFAULT_SRC_MAC: &[u8; 6] = &[0x01, 0x01, 0x01, 0x01, 0x01, 0x01];
-        eth_packet[EtherField::SRC_MAC].copy_from_slice(DEFAULT_SRC_MAC);
+        frame[EtherField::SRC_MAC].copy_from_slice(DEFAULT_SRC_MAC);
     }
-    eth_packet[EtherField::PAYLOAD].copy_from_slice(&frame[0..]);
-    match IpPacket::packet(frame) {
+    let (ether_type, protocol, payload_off) = match IpPacket::packet(&frame[14..]) {
         IpPacket::V4(pkt) => {
-            const ETHER_TYPE_IPV4: &[u8; 2] = &[0x08, 0x00];
-            eth_packet[EtherField::ETHER_TYPE].copy_from_slice(ETHER_TYPE_IPV4);
-            if let (Some(src_subnet), Some(dst_subnet)) = (src_subnet, dst_subnet) {
-                translate_packet(
-                    pkt.protocol,
-                    pkt.payload_off,
-                    &mut eth_packet[14..],
-                    src_subnet,
-                    dst_subnet,
-                )?;
-            }
+            const ETHER_TYPE_IPV4: [u8; 2] = [0x08, 0x00];
+            (ETHER_TYPE_IPV4, pkt.protocol, pkt.payload_off)
         }
         IpPacket::V6(_pkt) => {
-            const ETHER_TYPE_IPV6: &[u8; 2] = &[0x86, 0xdd];
-            eth_packet[EtherField::ETHER_TYPE].copy_from_slice(ETHER_TYPE_IPV6);
+            return Err(Error::Other(
+                "Error when wrapping IP packet: IPv6 not supported".into(),
+            ));
         }
     };
-    Ok(eth_packet)
+    frame[EtherField::ETHER_TYPE].copy_from_slice(&ether_type);
+    if let (Some(src_subnet), Some(dst_subnet)) = (src_subnet, dst_subnet) {
+        translate_packet(
+            protocol,
+            payload_off,
+            &mut frame[14..],
+            src_subnet,
+            dst_subnet,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn fix_packet_checksum(checksum_bytes: &mut [u8], modify_sum: u32) {

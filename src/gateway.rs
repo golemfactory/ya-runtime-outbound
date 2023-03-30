@@ -1,4 +1,4 @@
-use futures::{FutureExt, SinkExt, StreamExt};
+use futures::{FutureExt};
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::process::Stdio;
@@ -7,16 +7,16 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use structopt::StructOpt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use tun::TunPacket;
 use url::Url;
 
 use crate::iptables::{
     create_vpn_config, generate_interface_subnet_and_name, iptables_cleanup,
     iptables_route_to_interface, IpTablesRule,
 };
-use crate::packet_conv::{packet_ether_to_ip_slice, packet_ip_wrap_to_ether};
+use crate::packet_conv::{packet_ether_to_ip_slice, packet_ip_wrap_to_ether_in_place};
 use ya_runtime_sdk::error::Error;
 use ya_runtime_sdk::server::ContainerEndpoint;
 use ya_runtime_sdk::*;
@@ -290,27 +290,26 @@ impl Runtime for GatewayRuntime {
                 }
             }
 
-            let (mut tun_write, mut tun_read) = dev.into_framed().split();
-            //let r = Arc::new(socket);
-            //let s = r.clone();
-
+            let (mut tun_read, mut tun_write) = tokio::io::split(dev);
             let socket_ = socket.clone();
             tokio::spawn(async move {
+                const MAX_PACKET_SIZE: usize = 65535;
+                let mut buf = Box::new(vec![0u8; MAX_PACKET_SIZE + 14]);
                 loop {
-                    if let Some(Ok(packet)) = tun_read.next().await {
-                        let packet_size = packet.get_bytes().len();
+                    if let Ok(packet_size) = tun_read.read(&mut buf[14..]).await {
                         //todo: add mac addresses
-                        match packet_ip_wrap_to_ether(
-                            packet.get_bytes(),
+                        let ether_packet = &mut buf[..14 + packet_size];
+                        match packet_ip_wrap_to_ether_in_place(
+                            ether_packet,
                             None,
                             None,
                             Some(&vpn_subnet_info.subnet.octets()),
                             Some(&yagna_net_addr.octets()),
                         ) {
                             //emitter.counter("vpn.packets.out", 1);
-                            Ok(ether_packet) => {
+                            Ok(()) => {
                                 if let Err(err) =
-                                    socket_.send_to(&ether_packet, &vpn_endpoint).await
+                                    socket_.send_to(ether_packet, &vpn_endpoint).await
                                 {
                                     log::error!(
                                         "Error sending packet to udp endpoint {}: {:?}",
@@ -348,7 +347,7 @@ impl Runtime for GatewayRuntime {
                         Ok(ip_slice) => {
                             log::trace!("IP packet: {:?}", ip_slice);
                             if let Err(err) =
-                                tun_write.send(TunPacket::new(ip_slice.to_vec())).await
+                                tun_write.write(ip_slice).await
                             {
                                 log::error!("Error sending packet: {:?}", err);
                             } else {
