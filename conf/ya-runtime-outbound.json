@@ -1,0 +1,30 @@
+[
+  {
+    "name": "outbound",
+    "version": "0.1.1",
+    "supervisor-path": "exe-unit",
+    "runtime-path": "ya-runtime-outbound/ya-runtime-outbound",
+    "description": "Outbound network traffic gateway",
+    "extra-args": ["--runtime-managed-image"],
+    "properties": {},
+    "config": {
+      "counters": {
+        "golem.usage.network.in-mib": {
+          "name": "in-network-traffic",
+          "description": "Incoming network traffic usage in MiB/s",
+          "price": true
+        },
+        "golem.usage.network.out-mib": {
+          "name": "out-network-traffic",
+          "description": "Outgoing network traffic usage in MiB/s",
+          "price": true
+        },
+        "golem.usage.duration_sec": {
+          "name": "duration",
+          "description": "Activity duration in seconds",
+          "price": true
+        }
+      }
+    }
+  }
+]

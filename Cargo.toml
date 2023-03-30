@@ -1,0 +1,39 @@
+[package]
+name = "ya-runtime-outbound"
+version = "0.2.0"
+edition = "2021"
+description = "Runtime for exposing outbound connections for other Nodes in Golem Network"
+authors = ["Golem Factory <contact@golem.network>"]
+homepage = "https://github.com/golemfactory/ya-runtime-outbound-gateway"
+repository = "https://github.com/golemfactory/ya-runtime-outbound-gateway"
+license = "GPL-3.0"
+readme = "README.md"
+
+[dependencies]
+#ya-runtime-sdk = { version = "0.4.0", features = ["macros"] }
+ya-runtime-sdk = { git = "https://github.com/golemfactory/ya-runtime-sdk.git", rev = "85a88e5bd76fedd9ff9904952bc256856535e3cb", features = ["macros", "logger"]}
+ya-client = "0.7.1"
+ya-relay-stack = { git = "https://github.com/golemfactory/ya-relay.git", rev = "589af1f" }
+actix-rt = "2.7.0"
+anyhow = "1.0"
+futures = "0.3.26"
+log = "0.4"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "1.0"
+structopt = "0.3"
+tokio = { version = "1", features = ["process", "macros", "time", "rt-multi-thread"] }
+url = "2.3.1"
+etherparse = "0.13.0"
+rand = "0.8.4"
+# fork contains for know fixes to compilation on Windows
+tun = { version = "0.5.5", features = ["async"], git = "https://github.com/scx1332/golem-rust-tun.git" }
+network-interface = "1.0.0"
+
+[dev-dependencies]
+hex = "0.4.3"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+panic ="abort"
