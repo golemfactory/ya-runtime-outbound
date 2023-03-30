@@ -17,7 +17,7 @@ PROVIDER_CMD=${PROVIDER_GLOBAL_CMD}
 
 echo "Creating and activating Provider preset:"
 
-${PROVIDER_CMD} preset create --no-interactive --preset-name ${PRESET_NAME} --pricing linear --exe-unit "outbound-gateway" --price "out-network-traffic=0.000001" --price "in-network-traffic=0.000001" --price "duration=0.0001"
+${PROVIDER_CMD} preset create --no-interactive --preset-name ${PRESET_NAME} --pricing linear --exe-unit "outbound" --price "out-network-traffic=0.000001" --price "in-network-traffic=0.000001" --price "duration=0.0001"
 ${PROVIDER_CMD} preset activate "${PRESET_NAME}"
 
 # Print presets to verify
