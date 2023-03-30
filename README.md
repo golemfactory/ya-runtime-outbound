@@ -1,4 +1,4 @@
-# ya-runtime-outbound-gateway
+# ya-runtime-outbound
 
 Outbound Gateway runtime allows Requestor to route his network traffic through Provider.
 In the future it could be seen as general network gateway for all Providers in Golem VPN network
@@ -10,7 +10,7 @@ setup by Requestor.
 This command will build runtime, install it in yagna directories and setup Provider presets:
 `./setup/install.sh`
 
-You can run `./setup/install-runtime.sh` if your have already preapred Provider configuration,
+You can run `./setup/install-runtime.sh` if your have already prepared Provider configuration,
 but need to rebuild and replace runtime binaries.
 
 

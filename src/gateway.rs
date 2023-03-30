@@ -68,7 +68,7 @@ impl Runtime for GatewayRuntime {
 
     fn start<'a>(&mut self, ctx: &mut Context<Self>) -> OutputResponse<'a> {
         //these logs seems to be visible in proper folder
-        log::info!("Running `Start` command. Vpn endpoint: {:?}. Gateway configuration {:?}", ctx.cli.runtime.vpn_endpoint, ctx.conf);
+        log::info!("Running `Start` command. Vpn endpoint: {:?}. Gateway configuration {:?} Config path {:?}", ctx.cli.runtime.vpn_endpoint, ctx.conf, ctx.conf_path);
 
         let _emitter = ctx
             .emitter
