@@ -29,7 +29,10 @@ pub struct GatewayCli {
     vpn_endpoint: Option<Url>,
 }
 
+/// Gateway local configuration
+/// Default location: ~/.local/share/ya-runtime-gateway/ya-runtime-gateway.json
 #[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GatewayConf {
     pub outbound_interface: String,
     pub apply_iptables_rules: bool,
