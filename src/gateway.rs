@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use structopt::StructOpt;
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use tun::TunPacket;
 use url::Url;
 
@@ -22,6 +22,7 @@ use ya_runtime_sdk::server::ContainerEndpoint;
 use ya_runtime_sdk::*;
 
 use crate::routing::RoutingTable;
+use crate::stats::{InboundStats, InboundStatsAtomic, OutboundStats, OutboundStatsAtomic};
 
 #[derive(StructOpt)]
 #[structopt(rename_all = "kebab-case")]
@@ -47,49 +48,6 @@ pub struct GatewayRuntime {
     pub routing: RoutingTable,
     pub rules_to_remove: Arc<Mutex<Vec<IpTablesRule>>>,
     pub vpn_endpoint: Option<ContainerEndpoint>,
-}
-
-//potentially there could be mismatch between packets sent and bytes sent,
-//because it possible that bytes_sent field is updated and packets_sent is not
-//Atomic operations are separated. But it is not big deal we just want statistics, not super precise value
-#[derive(Default)]
-struct OutboundStatsAtomic {
-    pub bytes_sent: std::sync::atomic::AtomicU64,
-    pub packets_sent: std::sync::atomic::AtomicU64,
-}
-impl OutboundStatsAtomic {
-    pub fn to_outbound_stats(&self) -> OutboundStats {
-        OutboundStats {
-            bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
-            packets_sent: self.packets_sent.load(Ordering::Relaxed),
-        }
-    }
-}
-
-#[derive(Default)]
-struct InboundStatsAtomic {
-    pub bytes_received: std::sync::atomic::AtomicU64,
-    pub packets_received: std::sync::atomic::AtomicU64,
-}
-
-impl InboundStatsAtomic {
-    pub fn to_inbound_stats(&self) -> InboundStats {
-        InboundStats {
-            bytes_received: self.bytes_received.load(Ordering::Relaxed),
-            packets_received: self.packets_received.load(Ordering::Relaxed),
-        }
-    }
-}
-
-#[derive(Default, PartialEq, Eq, Debug, Clone, Copy)]
-struct OutboundStats {
-    pub bytes_sent: u64,
-    pub packets_sent: u64,
-}
-#[derive(Default, PartialEq, Eq, Debug, Clone, Copy)]
-struct InboundStats {
-    pub bytes_received: u64,
-    pub packets_received: u64,
 }
 
 impl Runtime for GatewayRuntime {
@@ -335,7 +293,6 @@ impl Runtime for GatewayRuntime {
             let (mut tun_write, mut tun_read) = dev.into_framed().split();
             //let r = Arc::new(socket);
             //let s = r.clone();
-            let (_udp_socket_write, _rx_forward_to_socket) = mpsc::channel::<Vec<u8>>(1);
 
             let socket_ = socket.clone();
             tokio::spawn(async move {

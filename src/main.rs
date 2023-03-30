@@ -2,6 +2,7 @@ mod gateway;
 mod iptables;
 mod packet_conv;
 mod routing;
+mod stats;
 
 use gateway::GatewayRuntime;
 
