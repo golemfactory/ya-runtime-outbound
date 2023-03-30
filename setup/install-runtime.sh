@@ -12,3 +12,6 @@ echo "Installing in ${DEFAULT_INSTALL_DIR}"
 
 cp target/release/ya-runtime-outbound ${DEFAULT_INSTALL_DIR}/ya-runtime-outbound/ya-runtime-outbound
 cp conf/ya-runtime-outbound.json ${DEFAULT_INSTALL_DIR}/ya-runtime-outbound.json
+
+echo "Additionally call this command to allow creating tun interface:"
+echo "sudo setcap 'cap_net_admin+ep' ${DEFAULT_INSTALL_DIR}/ya-runtime-outbound/ya-runtime-outbound"
