@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::process::Stdio;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 use structopt::StructOpt;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, Mutex};
@@ -45,6 +47,49 @@ pub struct GatewayRuntime {
     pub routing: RoutingTable,
     pub rules_to_remove: Arc<Mutex<Vec<IpTablesRule>>>,
     pub vpn_endpoint: Option<ContainerEndpoint>,
+}
+
+//potentially there could be mismatch between packets sent and bytes sent,
+//because it possible that bytes_sent field is updated and packets_sent is not
+//Atomic operations are separated. But it is not big deal we just want statistics, not super precise value
+#[derive(Default)]
+struct OutboundStatsAtomic {
+    pub bytes_sent: std::sync::atomic::AtomicU64,
+    pub packets_sent: std::sync::atomic::AtomicU64,
+}
+impl OutboundStatsAtomic {
+    pub fn to_outbound_stats(&self) -> OutboundStats {
+        OutboundStats {
+            bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
+            packets_sent: self.packets_sent.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Default)]
+struct InboundStatsAtomic {
+    pub bytes_received: std::sync::atomic::AtomicU64,
+    pub packets_received: std::sync::atomic::AtomicU64,
+}
+
+impl InboundStatsAtomic {
+    pub fn to_inbound_stats(&self) -> InboundStats {
+        InboundStats {
+            bytes_received: self.bytes_received.load(Ordering::Relaxed),
+            packets_received: self.packets_received.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Default, PartialEq, Eq, Debug, Clone, Copy)]
+struct OutboundStats {
+    pub bytes_sent: u64,
+    pub packets_sent: u64,
+}
+#[derive(Default, PartialEq, Eq, Debug, Clone, Copy)]
+struct InboundStats {
+    pub bytes_received: u64,
+    pub packets_received: u64,
 }
 
 impl Runtime for GatewayRuntime {
@@ -176,7 +221,7 @@ impl Runtime for GatewayRuntime {
             log::error!("Only one network is supported");
             return Error::response("Only one network is supported");
         }
-        let network = match create_network.networks.iter().next() {
+        let network = match create_network.networks.first() {
             Some(network) => network,
             None => {
                 log::error!("No network provided");
@@ -216,9 +261,10 @@ impl Runtime for GatewayRuntime {
         let vpn_subnet_info = match generate_interface_subnet_and_name(yagna_net_ip.octets()[3]) {
             Ok(vpn_subnet_info) => vpn_subnet_info,
             Err(err) => {
+                log::error!("Error when generating interface subnet and name {err:?}");
                 return Error::response(format!(
                     "Error when generating interface subnet and name {err:?}"
-                ))
+                ));
             }
         };
 
@@ -235,7 +281,7 @@ impl Runtime for GatewayRuntime {
             Some(container_endpoint) => match container_endpoint {
                 ContainerEndpoint::UdpDatagram(udp_socket_addr) => {
                     log::info!("Using UDP endpoint: {}", udp_socket_addr);
-                    udp_socket_addr.clone()
+                    *udp_socket_addr
                 }
                 _ => {
                     log::error!("Only UDP endpoint is supported");
@@ -249,8 +295,23 @@ impl Runtime for GatewayRuntime {
         };
         let outbound_interface = ctx.conf.outbound_interface.clone();
         let apply_ip_tables_rules = ctx.conf.apply_iptables_rules;
+        let mut emitter = ctx
+            .emitter
+            .clone()
+            .expect("No emitter, Service not running in Server mode");
         async move {
+            emitter
+                .counter(RuntimeCounter {
+                    name: "join_network".to_string(),
+                    value: 1.0,
+                })
+                .await;
             //let tun =
+            let outbound_stats_ = Arc::new(OutboundStatsAtomic::default());
+            let inbound_stats_ = Arc::new(InboundStatsAtomic::default());
+            let outbound_stats = outbound_stats_.clone();
+            let inbound_stats = inbound_stats_.clone();
+
             let socket = Arc::new(UdpSocket::bind(("127.0.0.1", 0)).await.unwrap());
             let endpoint = ContainerEndpoint::UdpDatagram(socket.local_addr().unwrap());
 
@@ -260,8 +321,11 @@ impl Runtime for GatewayRuntime {
             //Leaving this code inactive for now.
             //TODO: use when rules will be needed
             if apply_ip_tables_rules {
-                let ip_rules_to_remove =
-                    iptables_route_to_interface(&outbound_interface, &vpn_subnet_info.interface_name).unwrap();
+                let ip_rules_to_remove = iptables_route_to_interface(
+                    &outbound_interface,
+                    &vpn_subnet_info.interface_name,
+                )
+                .unwrap();
                 {
                     //use this method due to runtime issues
                     *ip_rules_to_remove_ext.lock().await = ip_rules_to_remove;
@@ -277,14 +341,16 @@ impl Runtime for GatewayRuntime {
             tokio::spawn(async move {
                 loop {
                     if let Some(Ok(packet)) = tun_read.next().await {
+                        let packet_size = packet.get_bytes().len();
                         //todo: add mac addresses
                         match packet_ip_wrap_to_ether(
-                            &packet.get_bytes(),
+                            packet.get_bytes(),
                             None,
                             None,
                             Some(&vpn_subnet_info.subnet.octets()),
                             Some(&yagna_net_addr.octets()),
                         ) {
+                            //emitter.counter("vpn.packets.out", 1);
                             Ok(ether_packet) => {
                                 if let Err(err) =
                                     socket_.send_to(&ether_packet, &vpn_endpoint).await
@@ -294,6 +360,11 @@ impl Runtime for GatewayRuntime {
                                         &vpn_endpoint,
                                         err
                                     );
+                                } else {
+                                    outbound_stats
+                                        .bytes_sent
+                                        .fetch_add(packet_size as u64, Ordering::Relaxed);
+                                    outbound_stats.packets_sent.fetch_add(1, Ordering::Relaxed);
                                 }
                             }
                             Err(e) => {
@@ -323,6 +394,13 @@ impl Runtime for GatewayRuntime {
                                 tun_write.send(TunPacket::new(ip_slice.to_vec())).await
                             {
                                 log::error!("Error sending packet: {:?}", err);
+                            } else {
+                                inbound_stats
+                                    .bytes_received
+                                    .fetch_add(ip_slice.len() as u64, Ordering::Relaxed);
+                                inbound_stats
+                                    .packets_received
+                                    .fetch_add(1, Ordering::Relaxed);
                             }
                         }
                         Err(e) => {
@@ -331,14 +409,55 @@ impl Runtime for GatewayRuntime {
                     }
                 }
             });
+
+            let outbound_stats = outbound_stats_;
+            let inbound_stats = inbound_stats_;
+            tokio::spawn(async move {
+                let mut last_outbound_stats = OutboundStats::default();
+                let mut last_inbound_stats = InboundStats::default();
+                loop {
+                    let outbound_stats = outbound_stats.to_outbound_stats();
+                    let inbound_stats = inbound_stats.to_inbound_stats();
+
+                    if outbound_stats != last_outbound_stats {
+                        let bytes_sent_mib = outbound_stats.bytes_sent as f64 / 1024.0 / 1024.0;
+                        log::info!(
+                            "Outgoing statistics: bytes: {} MiB: {} packets: {}",
+                            outbound_stats.bytes_sent,
+                            bytes_sent_mib,
+                            outbound_stats.packets_sent
+                        );
+                        emitter
+                            .counter(RuntimeCounter {
+                                name: "out-network-traffic".to_string(),
+                                value: outbound_stats.bytes_sent as f64,
+                            })
+                            .await;
+                        last_outbound_stats = outbound_stats;
+                    }
+                    if inbound_stats != last_inbound_stats {
+                        let bytes_received_mib =
+                            inbound_stats.bytes_received as f64 / 1024.0 / 1024.0;
+                        log::info!(
+                            "Incoming statistics: bytes: {} MiB: {} packets: {}",
+                            inbound_stats.bytes_received,
+                            bytes_received_mib,
+                            inbound_stats.packets_received
+                        );
+                        emitter
+                            .counter(RuntimeCounter {
+                                name: "in-network-traffic".to_string(),
+                                value: inbound_stats.bytes_received as f64,
+                            })
+                            .await;
+                        last_inbound_stats = inbound_stats;
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+            });
             routing.update_network(create_network).await?;
             Ok(endpoint)
-
-            //endpoint.connect(cep).await?;
-            /*Ok(Some(serde_json::json!({
-                "endpoint": new_endpoint,
-                "vpn-subnet-info": vpn_subnet_info,
-            })))*/
         }
         .boxed_local()
     }

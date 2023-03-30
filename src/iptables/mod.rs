@@ -32,19 +32,19 @@ fn iptables_remove_rule(rule: &IpTablesRule) -> std::io::Result<()> {
                 log::error!("Error deleting rule: iptables -t {table} -D {rule}");
                 log::error!("{}", String::from_utf8_lossy(&output.stdout));
                 log::error!("{}", String::from_utf8_lossy(&output.stderr));
-                return Err(std::io::Error::new(
+                Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Error deleting rule",
-                ));
+                ))
             }
         }
         Ok(Err(err)) => {
             log::error!("Error deleting rule: iptables -t {table} -A {rule} {err:?}");
-            return Err(err);
+            Err(err)
         }
         Err(err) => {
             log::error!("Error deleting rule: iptables -t {table} -A {rule} {err:?}");
-            return Err(err);
+            Err(err)
         }
     }
 }
@@ -56,7 +56,7 @@ fn iptables_add_rule(rule: &IpTablesRule) -> std::io::Result<()> {
         .arg("-t")
         .arg(table)
         .arg("-C")
-        .args(rule.split(" "))
+        .args(rule.split(' '))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -84,7 +84,7 @@ fn iptables_add_rule(rule: &IpTablesRule) -> std::io::Result<()> {
         .arg("-t")
         .arg(table)
         .arg("-A")
-        .args(rule.split(" "))
+        .args(rule.split(' '))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -98,19 +98,19 @@ fn iptables_add_rule(rule: &IpTablesRule) -> std::io::Result<()> {
                 log::error!("Error adding rule: iptables -t {table} -A {rule}");
                 log::error!("{}", String::from_utf8_lossy(&output.stdout));
                 log::error!("{}", String::from_utf8_lossy(&output.stderr));
-                return Err(std::io::Error::new(
+                Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Error adding rule",
-                ));
+                ))
             }
         }
         Ok(Err(err)) => {
             log::error!("Error adding rule: iptables -t {table} -A {rule} {err:?}");
-            return Err(err);
+            Err(err)
         }
         Err(err) => {
             log::error!("Error adding rule: iptables -t {table} -A {rule} {err:?}");
-            return Err(err);
+            Err(err)
         }
     }
 }
@@ -201,7 +201,7 @@ pub fn generate_interface_subnet_and_name(ip_suffix: u8) -> std::io::Result<Subn
 
         let si = SubnetIpv4Info {
             subnet: Ipv4Addr::from_str(&subnet).expect("Cannot fail, invalid ip address"),
-            mask: Ipv4Addr::from_str(&mask).expect("Cannot fail, invalid ip address"),
+            mask: Ipv4Addr::from_str(mask).expect("Cannot fail, invalid ip address"),
             interface_name: device_name,
             node_ip: Ipv4Addr::from_str(&node_ip).expect("Cannot fail, invalid ip address"),
             mtu: 1200, //todo: get this from config?

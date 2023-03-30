@@ -67,7 +67,7 @@ pub fn translate_packet(
         }
         _ => {}
     }
-    return Ok(());
+    Ok(())
 }
 
 pub fn packet_ip_wrap_to_ether(

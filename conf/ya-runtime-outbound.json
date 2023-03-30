@@ -11,12 +11,12 @@
       "counters": {
         "golem.usage.network.in-mib": {
           "name": "in-network-traffic",
-          "description": "Incoming network traffic usage in MiB/s",
+          "description": "Incoming network traffic usage in MiB",
           "price": true
         },
         "golem.usage.network.out-mib": {
           "name": "out-network-traffic",
-          "description": "Outgoing network traffic usage in MiB/s",
+          "description": "Outgoing network traffic usage in MiB",
           "price": true
         },
         "golem.usage.duration_sec": {
