@@ -70,7 +70,6 @@ pub fn translate_packet(
     Ok(())
 }
 
-
 /// This function need IP packet to be at position frame[14..]
 /// It will add ethernet header to the [0..14] position of the frame
 /// Additionally it will translate IP address to the new subnet

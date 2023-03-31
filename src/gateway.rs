@@ -317,10 +317,12 @@ impl Runtime for GatewayRuntime {
                                         err
                                     );
                                 } else {
-                                    outbound_stats
-                                        .bytes_sent
+                                    inbound_stats
+                                        .bytes_received
                                         .fetch_add(packet_size as u64, Ordering::Relaxed);
-                                    outbound_stats.packets_sent.fetch_add(1, Ordering::Relaxed);
+                                    inbound_stats
+                                        .packets_received
+                                        .fetch_add(1, Ordering::Relaxed);
                                 }
                             }
                             Err(e) => {
@@ -348,12 +350,10 @@ impl Runtime for GatewayRuntime {
                             if let Err(err) = tun_write.write(ip_slice).await {
                                 log::error!("Error sending packet: {:?}", err);
                             } else {
-                                inbound_stats
-                                    .bytes_received
+                                outbound_stats
+                                    .bytes_sent
                                     .fetch_add(ip_slice.len() as u64, Ordering::Relaxed);
-                                inbound_stats
-                                    .packets_received
-                                    .fetch_add(1, Ordering::Relaxed);
+                                outbound_stats.packets_sent.fetch_add(1, Ordering::Relaxed);
                             }
                         }
                         Err(e) => {
@@ -383,7 +383,7 @@ impl Runtime for GatewayRuntime {
                         emitter
                             .counter(RuntimeCounter {
                                 name: "golem.usage.network.out-mib".to_string(),
-                                value: outbound_stats.bytes_sent as f64,
+                                value: bytes_sent_mib,
                             })
                             .await;
                         last_outbound_stats = outbound_stats;
@@ -400,7 +400,7 @@ impl Runtime for GatewayRuntime {
                         emitter
                             .counter(RuntimeCounter {
                                 name: "golem.usage.network.in-mib".to_string(),
-                                value: inbound_stats.bytes_received as f64,
+                                value: bytes_received_mib,
                             })
                             .await;
                         last_inbound_stats = inbound_stats;
