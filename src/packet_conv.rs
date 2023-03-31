@@ -240,21 +240,32 @@ mod tests {
         .unwrap();
         let valid_ether_packet = hex::decode("02020202020201010101010108004500002800010000401175ba0d0f1112717375765b941a850014476f48656c6c6f205061636b6574").unwrap();
 
+        let mut prepare_packet = vec![0u8; 14 + valid_ip_packet.len()];
+        prepare_packet.as_mut_slice()[14..].copy_from_slice(valid_ip_packet.as_slice());
+        packet_ip_wrap_to_ether_in_place(prepare_packet.as_mut_slice(), None, None, None, None)
+            .unwrap();
         assert_eq!(
             hex::encode(&valid_ether_packet),
-            hex::encode(packet_ip_wrap_to_ether(&valid_ip_packet, None, None, None, None).unwrap())
+            hex::encode(&prepare_packet)
         );
 
         let valid_ether_packet2 = hex::decode("51bd2c1e5c202423d4418ef108004500002800010000401175ba0d0f1112717375765b941a850014476f48656c6c6f205061636b6574").unwrap();
 
         const SRC_MAC: &[u8; 6] = &[0x24, 0x23, 0xd4, 0x41, 0x8e, 0xf1];
         const DST_MAC: &[u8; 6] = &[0x51, 0xbd, 0x2c, 0x1e, 0x5c, 0x20];
+        let mut prepare_packet = vec![0u8; 14 + valid_ip_packet.len()];
+        prepare_packet.as_mut_slice()[14..].copy_from_slice(valid_ip_packet.as_slice());
+        packet_ip_wrap_to_ether_in_place(
+            prepare_packet.as_mut_slice(),
+            Some(SRC_MAC),
+            Some(DST_MAC),
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(
             hex::encode(&valid_ether_packet2),
-            hex::encode(
-                packet_ip_wrap_to_ether(&valid_ip_packet, Some(SRC_MAC), Some(DST_MAC), None, None)
-                    .unwrap()
-            )
+            hex::encode(&prepare_packet)
         );
     }
 
