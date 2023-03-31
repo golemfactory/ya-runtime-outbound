@@ -1,7 +1,7 @@
 [
   {
     "name": "outbound",
-    "version": "0.1.1",
+    "version": "0.2.2",
     "supervisor-path": "exe-unit",
     "runtime-path": "ya-runtime-outbound/ya-runtime-outbound",
     "description": "Outbound network traffic gateway",
