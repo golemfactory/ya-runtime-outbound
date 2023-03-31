@@ -1,4 +1,4 @@
-use futures::{FutureExt};
+use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::process::Stdio;
@@ -23,6 +23,8 @@ use ya_runtime_sdk::*;
 
 use crate::routing::RoutingTable;
 use crate::stats::{InboundStats, InboundStatsAtomic, OutboundStats, OutboundStatsAtomic};
+
+const MAX_PACKET_SIZE: usize = 65535;
 
 #[derive(StructOpt)]
 #[structopt(rename_all = "kebab-case")]
@@ -293,8 +295,7 @@ impl Runtime for GatewayRuntime {
             let (mut tun_read, mut tun_write) = tokio::io::split(dev);
             let socket_ = socket.clone();
             tokio::spawn(async move {
-                const MAX_PACKET_SIZE: usize = 65535;
-                let mut buf = Box::new(vec![0u8; MAX_PACKET_SIZE + 14]);
+                let mut buf = Box::new(vec![0u8; MAX_PACKET_SIZE]);
                 loop {
                     if let Ok(packet_size) = tun_read.read(&mut buf[14..]).await {
                         //todo: add mac addresses
@@ -308,8 +309,7 @@ impl Runtime for GatewayRuntime {
                         ) {
                             //emitter.counter("vpn.packets.out", 1);
                             Ok(()) => {
-                                if let Err(err) =
-                                    socket_.send_to(ether_packet, &vpn_endpoint).await
+                                if let Err(err) = socket_.send_to(ether_packet, &vpn_endpoint).await
                                 {
                                     log::error!(
                                         "Error sending packet to udp endpoint {}: {:?}",
@@ -332,7 +332,6 @@ impl Runtime for GatewayRuntime {
             });
 
             tokio::spawn(async move {
-                const MAX_PACKET_SIZE: usize = 65535;
                 let mut buf_box = Box::new([0; MAX_PACKET_SIZE]); //sufficient to hold jumbo frames (probably around 9000)
                 let buf = &mut *buf_box;
                 loop {
@@ -346,9 +345,7 @@ impl Runtime for GatewayRuntime {
                     ) {
                         Ok(ip_slice) => {
                             log::trace!("IP packet: {:?}", ip_slice);
-                            if let Err(err) =
-                                tun_write.write(ip_slice).await
-                            {
+                            if let Err(err) = tun_write.write(ip_slice).await {
                                 log::error!("Error sending packet: {:?}", err);
                             } else {
                                 inbound_stats
@@ -385,7 +382,7 @@ impl Runtime for GatewayRuntime {
                         );
                         emitter
                             .counter(RuntimeCounter {
-                                name: "out-network-traffic".to_string(),
+                                name: "golem.usage.network.out-mib".to_string(),
                                 value: outbound_stats.bytes_sent as f64,
                             })
                             .await;
@@ -402,7 +399,7 @@ impl Runtime for GatewayRuntime {
                         );
                         emitter
                             .counter(RuntimeCounter {
-                                name: "in-network-traffic".to_string(),
+                                name: "golem.usage.network.in-mib".to_string(),
                                 value: inbound_stats.bytes_received as f64,
                             })
                             .await;
