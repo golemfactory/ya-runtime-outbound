@@ -84,12 +84,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --profile debug --target ${{ matrix.target }} -- --nocapture
+          args: --profile dev --target ${{ matrix.target }} -- --nocapture
 
       - name: Build binary target/${{ matrix.target }}/release/ya-runtime-outbound
         uses: actions-rs/cargo@v1
         with:
           use-cross: ${{ matrix.use-cross }}
           command: build
-          args: --profile debug --target ${{ matrix.target }}
+          args: --profile dev --target ${{ matrix.target }}
 
