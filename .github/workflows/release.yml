@@ -102,4 +102,4 @@ jobs:
           asset_name: ya-runtime-outbound.json
           tag: ${{ github.ref }}
           overwrite: true
-          body: "Configuration file for ya-runtime-outbound
+          body: "Configuration file for ya-runtime-outbound"
