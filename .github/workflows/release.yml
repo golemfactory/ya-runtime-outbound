@@ -93,3 +93,13 @@ jobs:
           tag: ${{ github.ref }}
           overwrite: true
           body: "Binary for ${{ matrix.cpu }} ${{ matrix.os }}"
+
+      - name: Upload config
+        uses: svenstaro/upload-release-action@2.3.0
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: conf/ya-runtime-outbound.json
+          asset_name: ya-runtime-outbound.json
+          tag: ${{ github.ref }}
+          overwrite: true
+          body: "Configuration file for ya-runtime-outbound
