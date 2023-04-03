@@ -92,4 +92,3 @@ jobs:
           use-cross: ${{ matrix.use-cross }}
           command: build
           args: --profile dev --target ${{ matrix.target }}
-
