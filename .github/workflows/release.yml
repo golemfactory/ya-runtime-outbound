@@ -70,13 +70,6 @@ jobs:
           target: ${{ matrix.target }}
           override: true
 
-      - name: Run tests
-        if: ${{ matrix.run-tests }}
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --profile release-lto --target ${{ matrix.target }} -- --nocapture
-
       - name: Build binary target/${{ matrix.target }}/release/ya-runtime-outbound
         uses: actions-rs/cargo@v1
         with:
@@ -84,10 +77,17 @@ jobs:
           command: build
           args: --profile release-lto --target ${{ matrix.target }}
 
+      - name: Run tests
+        if: ${{ matrix.run-tests }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --profile release-lto --target ${{ matrix.target }} -- --nocapture
+
       - name: Gz asset
         run: |
           set -ex
-          gzip -9 -c target/${{ matrix.target }}/release-lto/ya-runtime-outbound${{ matrix.exe }}
+          gzip -9 --keep target/${{ matrix.target }}/release-lto/ya-runtime-outbound${{ matrix.exe }}
 
       - name: Upload
         uses: svenstaro/upload-release-action@v2
