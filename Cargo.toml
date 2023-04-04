@@ -1,6 +1,6 @@
 [package]
 name = "ya-runtime-outbound"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2021"
 description = "Runtime for exposing outbound connections for other Nodes in Golem Network"
 authors = ["Golem Factory <contact@golem.network>"]
@@ -26,7 +26,7 @@ url = "2.3.1"
 etherparse = "0.13.0"
 rand = "0.8.4"
 # fork contains for now fixes to compilation on Windows and minor performance improvements
-tun = { version = "0.5.5", features = ["async"], git = "https://github.com/scx1332/golem-rust-tun.git" }
+tun = { version = "0.5.5", features = ["async"], git = "https://github.com/scx1332/golem-rust-tun.git", tag = "v0.5.6" }
 network-interface = "1.0.0"
 
 [dev-dependencies]
