@@ -84,15 +84,20 @@ jobs:
           command: build
           args: --profile release-lto --target ${{ matrix.target }}
 
+      - name: Gz asset
+        run: |
+          set -ex
+          gzip -9 -c target/${{ matrix.target }}/release-lto/ya-runtime-outbound${{ matrix.exe }}
+
       - name: Upload
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/${{ matrix.target }}/release-lto/ya-runtime-outbound${{ matrix.exe }}
-          asset_name: ya-runtime-outbound-${{ matrix.os }}-${{ matrix.cpu }}${{ matrix.exe }}
+          file: target/${{ matrix.target }}/release-lto/ya-runtime-outbound${{ matrix.exe }}.gz
+          asset_name: ya-runtime-outbound-${{ matrix.os }}-${{ matrix.cpu }}.gz
           tag: ${{ github.ref }}
           overwrite: true
-          body: "Binary for ${{ matrix.cpu }} ${{ matrix.os }}"
+          body: "Gzipped binary for ${{ matrix.cpu }} ${{ matrix.os }}"
 
       - name: Upload config
         uses: svenstaro/upload-release-action@v2
