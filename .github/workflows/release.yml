@@ -87,7 +87,7 @@ jobs:
       - name: Gz asset
         run: |
           set -ex
-          gzip -9 --keep target/${{ matrix.target }}/release-lto/ya-runtime-outbound${{ matrix.exe }}
+          gzip -f -9 --keep target/${{ matrix.target }}/release-lto/ya-runtime-outbound${{ matrix.exe }}
 
       - name: Upload
         uses: svenstaro/upload-release-action@v2
