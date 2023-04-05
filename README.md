@@ -28,3 +28,9 @@ poetry run python3 outbound-gateway.py
 ## Market negotiations
 
 More about properties exposed by Runtime and how to negotiate Agreement can be found here: https://github.com/golemfactory/yagna/wiki/Outbound-Gateway#market-negotiations
+
+
+## Development
+
+Packet.lib is placed to enable running tests on Windows (pnet crate wants that). It is not needed for the build.
+

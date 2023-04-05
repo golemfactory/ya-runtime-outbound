@@ -218,19 +218,18 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
 
 #[cfg(test)]
 mod tests {
-    use log::Level::Error;
     use super::*;
     use ya_relay_stack::packet::IpV4Packet;
 
     use packet_builder::payload::PayloadData;
     use packet_builder::*;
-    use pnet_datalink::Channel::Ethernet;
-    use pnet_datalink::NetworkInterface;
     use pnet::packet::icmp::IcmpTypes;
     use pnet::packet::tcp::TcpFlags;
     use pnet::packet::tcp::TcpOption;
     use pnet::packet::Packet;
     use pnet::util::MacAddr;
+    use pnet_datalink::Channel::Ethernet;
+    use pnet_datalink::NetworkInterface;
 
     /// Computes the checksum of an IPv4 packet in place. Not used because we are using incremental checksums.
     #[allow(dead_code)]
@@ -272,7 +271,8 @@ mod tests {
         assert_eq!(
             hex::encode(valid_ip_packet),
             hex::encode(
-                packet_ether_to_ip_slice(valid_ether_packet.as_mut_slice(), None, None, true).unwrap()
+                packet_ether_to_ip_slice(valid_ether_packet.as_mut_slice(), None, None, true)
+                    .unwrap()
             )
         );
     }
@@ -319,7 +319,7 @@ mod tests {
         {
             let mut packet_ether = hex::decode("a09fde7187fea09fde7187fe080045000028000100004011758a0d0f1142717375765b941a850014473f48656c6c6f205061636b6574").unwrap();
             let packet_ip_after_translation = hex::decode(
-                "4500002800010000401176870a121342717375765b941a850014413c48656c6c6f205061636b6574",
+                "4500002800010000401176870a121342717375765b941a850014483c48656c6c6f205061636b6574",
             )
             .unwrap();
 
@@ -327,7 +327,7 @@ mod tests {
                 packet_ether.as_mut_slice(),
                 Some(&[13, 15, 17, 0]),
                 Some(&[10, 18, 19, 0]),
-                true
+                true,
             )
             .unwrap();
             assert_eq!(
@@ -340,22 +340,57 @@ mod tests {
     #[test]
     fn test_packet_drop() {
         let mut pkt_buf = [0u8; 1500];
-        let pkt = packet_builder!(
+
+        let mut v = packet_builder!(
              pkt_buf,
              ether({set_source => MacAddr(10,1,1,1,1,1)}) /
              ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("127.0.0.1") }) /
-             icmp_dest_unreach({set_icmp_type => IcmpTypes::DestinationUnreachable}) /
-             ipv4({set_source => ipv4addr!("10.8.0.1"), set_destination => ipv4addr!("127.0.0.1") }) /
              udp({set_source => 53, set_destination => 5353}) /
              payload({"hello".to_string().into_bytes()})
-        );
+        ).packet().to_vec();
+
         let packet_out = packet_ether_to_ip_slice(
-            pkt_buf.as_mut_slice(),
+            v.as_mut_slice(),
             Some(&[13, 15, 17, 0]),
             Some(&[10, 18, 19, 0]),
-            true
+            true,
         );
         assert_eq!(packet_out, Err(ya_relay_stack::Error::Forbidden));
+    }
 
+    #[test]
+    fn test_packet_translation_2() {
+        {
+            let mut packet_in = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ether({set_source => MacAddr(10,1,1,1,1,1)}) /
+                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("13.15.17.12") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+
+            let packet_out = packet_ether_to_ip_slice(
+                packet_in.as_mut_slice(),
+                Some(&[13, 15, 17, 0]),
+                Some(&[10, 18, 19, 0]),
+                true,
+            )
+            .unwrap();
+
+            let mut packet_out_ref = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("10.18.19.12") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+
+            assert_eq!(hex::encode(packet_out), hex::encode(&packet_out_ref));
+        }
     }
 }
