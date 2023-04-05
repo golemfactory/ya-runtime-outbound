@@ -39,8 +39,9 @@ pub struct GatewayCli {
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GatewayConf {
-    pub outbound_interface: String,
+    pub outbound_interface: Option<String>,
     pub apply_iptables_rules: bool,
+    pub allow_packets_to_local: bool,
 }
 
 #[derive(Default, RuntimeDef, Clone)]
@@ -272,22 +273,44 @@ impl Runtime for GatewayRuntime {
             let outbound_stats = outbound_stats_.clone();
             let inbound_stats = inbound_stats_.clone();
 
-            let socket = Arc::new(UdpSocket::bind(("127.0.0.1", 0)).await.unwrap());
-            let endpoint = ContainerEndpoint::UdpDatagram(socket.local_addr().unwrap());
+            let socket = Arc::new(UdpSocket::bind(("127.0.0.1", 0)).await.map_err(|e| {
+                log::error!("Error when binding UDP socket: {e:?}");
+                Error::from_string(format!("Error when binding UDP socket: {e:?}"))
+            })?);
+            let endpoint = ContainerEndpoint::UdpDatagram(socket.local_addr().map_err(|e| {
+                log::error!("Error when getting UDP socket address: {e:?}");
+                Error::from_string(format!("Error when getting UDP socket address: {e:?}"))
+            })?);
 
-            log::info!("Listening on: {}", socket.local_addr().unwrap());
-            let dev = tun::create_as_async(&tun_config).unwrap();
+            log::info!(
+                "Listening on: {}",
+                socket.local_addr().map_err(|e| {
+                    log::error!("Error when getting UDP socket address: {e:?}");
+                    Error::from_string(format!("Error when getting UDP socket address: {e:?}"))
+                })?
+            );
+            let dev = tun::create_as_async(&tun_config).map_err(|e| {
+                log::error!("Error when creating TUN device: {e:?}");
+                Error::from_string(format!("Error when creating TUN device: {e:?}"))
+            })?;
 
             //Leaving this code inactive for now.
             //TODO: use when rules will be needed
             if apply_ip_tables_rules {
+                let Some(outbound_interface) = outbound_interface else {
+                    log::error!("No outbound interface provided");
+                    return Err(Error::from_string("No outbound interface provided"));
+                };
                 let ip_rules_to_remove = iptables_route_to_interface(
                     &outbound_interface,
                     &vpn_subnet_info.interface_name,
                 )
-                .unwrap();
+                .map_err(|e| {
+                    log::error!("Error when applying iptables rules: {e:?}");
+                    Error::from_string(format!("Error when applying iptables rules: {e:?}"))
+                })?;
                 {
-                    //use this method due to runtime issues
+                    //Save rules to auto remove when runtime is stopped
                     *ip_rules_to_remove_ext.lock().await = ip_rules_to_remove;
                 }
             }
