@@ -42,6 +42,7 @@ pub struct GatewayConf {
     pub outbound_interface: Option<String>,
     pub apply_iptables_rules: bool,
     pub allow_packets_to_local: bool,
+    pub print_packet_errors: bool,
 }
 
 #[derive(Default, RuntimeDef, Clone)]
@@ -256,6 +257,16 @@ impl Runtime for GatewayRuntime {
         };
         let outbound_interface = ctx.conf.outbound_interface.clone();
         let apply_ip_tables_rules = ctx.conf.apply_iptables_rules;
+        let print_packet_errors = ctx.conf.print_packet_errors;
+        if print_packet_errors {
+            log::warn!("Packet errors will be printed, this may affect performance");
+        }
+        let allow_packets_to_local = ctx.conf.allow_packets_to_local;
+        if allow_packets_to_local {
+            log::warn!("Allowing packets to local network");
+        } else {
+            log::info!("Packets to local network will be dropped");
+        }
         let mut emitter = ctx
             .emitter
             .clone()
@@ -349,7 +360,12 @@ impl Runtime for GatewayRuntime {
                                 }
                             }
                             Err(e) => {
-                                log::error!("Error wrapping packet: {:?}", e);
+                                inbound_stats
+                                    .packets_error
+                                    .fetch_add(1, Ordering::Relaxed);
+                                if print_packet_errors {
+                                    log::error!("Error wrapping packet: {:?}", e);
+                                }
                             }
                         }
                     }
@@ -361,15 +377,26 @@ impl Runtime for GatewayRuntime {
                 let buf = &mut *buf_box;
                 loop {
                     let (len, addr) = socket.recv_from(buf).await.unwrap();
-                    log::trace!("{len:?} bytes received from {addr:?}");
-                    log::trace!("Packet content {:?}", &buf[..len]);
+                    // check if packet is coming from the exe-unit endpoint, otherwise ignore it
+                    if addr != vpn_endpoint {
+                        if print_packet_errors {
+                            log::error!("Received packet from unknown source: {:?}", addr);
+                        }
+                        continue;
+                    }
+
+                    //log::trace!("{len:?} bytes received from {addr:?}");
+                    //log::trace!("Packet content {:?}", &buf[..len]);
+
+
                     match packet_ether_to_ip_slice(
                         &mut buf[..len],
                         Some(&yagna_net_addr.octets()),
                         Some(&vpn_subnet_info.subnet.octets()),
+                        !allow_packets_to_local
                     ) {
                         Ok(ip_slice) => {
-                            log::trace!("IP packet: {:?}", ip_slice);
+                            //log::trace!("IP packet: {:?}", ip_slice);
                             if let Err(err) = tun_write.write(ip_slice).await {
                                 log::error!("Error sending packet: {:?}", err);
                             } else {
@@ -380,7 +407,21 @@ impl Runtime for GatewayRuntime {
                             }
                         }
                         Err(e) => {
-                            log::error!("Error unwrapping packet: {:?}", e);
+                            match e {
+                                ya_relay_stack::Error::Forbidden => {
+                                    outbound_stats
+                                        .packets_local_drop
+                                        .fetch_add(1, Ordering::Relaxed);
+                                }
+                                _ => {
+                                    outbound_stats
+                                        .packets_error
+                                        .fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                            if print_packet_errors {
+                                log::error!("Error unwrapping packet: {:?}", e);
+                            }
                         }
                     }
                 }
@@ -398,10 +439,12 @@ impl Runtime for GatewayRuntime {
                     if outbound_stats != last_outbound_stats {
                         let bytes_sent_mib = outbound_stats.bytes_sent as f64 / 1024.0 / 1024.0;
                         log::info!(
-                            "Outgoing statistics: bytes: {} MiB: {} packets: {}",
+                            "Outgoing statistics: bytes: {} MiB: {} packets: {} dropped: {} error: {}",
                             outbound_stats.bytes_sent,
                             bytes_sent_mib,
-                            outbound_stats.packets_sent
+                            outbound_stats.packets_sent,
+                            outbound_stats.packets_local_drop,
+                            outbound_stats.packets_error
                         );
                         emitter
                             .counter(RuntimeCounter {
@@ -415,10 +458,11 @@ impl Runtime for GatewayRuntime {
                         let bytes_received_mib =
                             inbound_stats.bytes_received as f64 / 1024.0 / 1024.0;
                         log::info!(
-                            "Incoming statistics: bytes: {} MiB: {} packets: {}",
+                            "Incoming statistics: bytes: {} MiB: {} packets: {} error: {}",
                             inbound_stats.bytes_received,
                             bytes_received_mib,
-                            inbound_stats.packets_received
+                            inbound_stats.packets_received,
+                            inbound_stats.packets_error
                         );
                         emitter
                             .counter(RuntimeCounter {

@@ -4,11 +4,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub struct OutboundStats {
     pub bytes_sent: u64,
     pub packets_sent: u64,
+    pub packets_error: u64,
+    pub packets_local_drop: u64,
 }
 #[derive(Default, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct InboundStats {
     pub bytes_received: u64,
     pub packets_received: u64,
+    pub packets_error: u64,
 }
 
 //potentially there could be mismatch between packets sent and bytes sent,
@@ -18,12 +21,17 @@ pub struct InboundStats {
 pub struct OutboundStatsAtomic {
     pub bytes_sent: AtomicU64,
     pub packets_sent: AtomicU64,
+    pub packets_error: AtomicU64,
+    pub packets_local_drop: AtomicU64,
 }
+
 impl OutboundStatsAtomic {
     pub fn to_outbound_stats(&self) -> OutboundStats {
         OutboundStats {
             bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
             packets_sent: self.packets_sent.load(Ordering::Relaxed),
+            packets_error: self.packets_error.load(Ordering::Relaxed),
+            packets_local_drop: self.packets_local_drop.load(Ordering::Relaxed),
         }
     }
 }
@@ -32,6 +40,7 @@ impl OutboundStatsAtomic {
 pub struct InboundStatsAtomic {
     pub bytes_received: AtomicU64,
     pub packets_received: AtomicU64,
+    pub packets_error: AtomicU64,
 }
 
 impl InboundStatsAtomic {
@@ -39,6 +48,7 @@ impl InboundStatsAtomic {
         InboundStats {
             bytes_received: self.bytes_received.load(Ordering::Relaxed),
             packets_received: self.packets_received.load(Ordering::Relaxed),
+            packets_error: self.packets_error.load(Ordering::Relaxed),
         }
     }
 }

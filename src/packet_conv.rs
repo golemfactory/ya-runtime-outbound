@@ -1,7 +1,7 @@
 use ya_relay_stack::packet::{EtherField, IpPacket, IpV4Field, PeekPacket};
 use ya_relay_stack::Error;
 
-//todo implement proper subnet translation, not only 255.255.255.0
+//note it only works for 255.255.255.0 subnet mask
 //returns sum for fixup of checksum
 fn translate_address(addr: &mut [u8], src_subnet: &[u8; 4], dst_subnet: &[u8; 4]) -> u32 {
     let before_translation_1 = u16::from_be_bytes([addr[0], addr[1]]);
@@ -20,6 +20,7 @@ fn translate_address(addr: &mut [u8], src_subnet: &[u8; 4], dst_subnet: &[u8; 4]
         + after_translation_2 as u32
 }
 
+//note it only works for 255.255.255.0 subnet mask
 pub fn translate_packet(
     protocol: u8,
     payload_off: usize,
@@ -78,6 +79,7 @@ pub fn translate_packet(
 /// Additionally it will fix checksums for IP and TCP/UDP
 ///
 /// Note: This function is done 100% in place, without copying or allocating memory
+/// note it only works for 255.255.255.0 subnet mask
 pub fn packet_ip_wrap_to_ether_in_place(
     frame: &mut [u8],
     src_mac: Option<&[u8; 6]>,
@@ -143,10 +145,12 @@ pub fn fix_packet_checksum(checksum_bytes: &mut [u8], modify_sum: u32) {
     checksum_bytes[0..2].copy_from_slice(&(!sum_f as u16).to_be_bytes());
 }
 
+//note it only works for 255.255.255.0 subnet mask
 pub fn packet_ether_to_ip_slice<'a, 'b>(
     eth_packet: &'a mut [u8],
     src_subnet: Option<&'b [u8; 4]>,
     dst_subnet: Option<&'b [u8; 4]>,
+    drop_to_local: bool,
 ) -> Result<&'a mut [u8], Error> {
     const MIN_IP_HEADER_LENGTH: usize = 20;
     if eth_packet.len() <= 14 + MIN_IP_HEADER_LENGTH {
@@ -158,9 +162,9 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
 
     let ip_frame = &mut eth_packet[EtherField::PAYLOAD];
     if let Err(err) = IpPacket::peek(ip_frame) {
-        return Err(Error::PacketMalformed(format!(
+        Err(Error::PacketMalformed(format!(
             "Error when creating IP packet from ether packet {err}"
-        )));
+        )))
     } else {
         match IpPacket::packet(ip_frame) {
             IpPacket::V4(pkt) => {
@@ -172,14 +176,44 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
                         src_subnet,
                         dst_subnet,
                     )?;
+                    if drop_to_local {
+                        let drop_packet = if ip_frame[16..19] == dst_subnet[0..3] {
+                            //if target subnet is the same as dst_subnet then packet is allowed
+                            false
+                        } else {
+                            //check if packet is targeted to any other local subnet and drop it to improve security
+                            //16-20 is the target IP of IP packet
+                            #[allow(clippy::if_same_then_else, clippy::needless_bool)]
+                            if ip_frame[16] == 10 {
+                                //10.0.0.0 – 10.255.255.255
+                                true
+                            } else if ip_frame[16] == 172
+                                && ip_frame[17] >= 16
+                                && ip_frame[17] <= 31
+                            {
+                                //172.16.0.0 – 172.31.255.255
+                                true
+                            } else if ip_frame[16] == 192 && ip_frame[17] == 168 {
+                                //192.168.0.0 – 192.168.255.255
+                                true
+                            } else if ip_frame[16] == 127 {
+                                //block packets to loopback: 127.0.0.0 - 127.255.255.255
+                                true
+                            } else {
+                                //otherwise allow packet
+                                false
+                            }
+                        };
+                        if drop_packet {
+                            return Err(Error::Forbidden);
+                        }
+                    }
                 }
+                Ok(ip_frame)
             }
-            IpPacket::V6(_pkt) => {
-                //todo handle ipv6
-            }
-        };
+            IpPacket::V6(_pkt) => Err(Error::ProtocolNotSupported("Ipv6 not supported".into())),
+        }
     }
-    Ok(ip_frame)
 }
 
 #[cfg(test)]
