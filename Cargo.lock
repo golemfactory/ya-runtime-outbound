@@ -1922,7 +1922,7 @@ dependencies = [
 
 [[package]]
 name = "ya-runtime-outbound"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "actix-rt",
  "anyhow",
