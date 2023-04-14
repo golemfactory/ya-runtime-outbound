@@ -46,7 +46,7 @@ pub struct GatewayConf {
     pub allow_packets_to_local: bool,
     pub print_packet_errors: bool,
     pub debug_log_all_packets: bool,
-    pub mtu_size: Option<u16>,
+    pub interface_mtu: Option<u16>,
 }
 
 #[derive(Default, RuntimeDef, Clone)]
@@ -226,7 +226,7 @@ impl Runtime for GatewayRuntime {
 
         let vpn_subnet_info = match generate_interface_subnet_and_name(
             yagna_net_ip.octets()[3],
-            ctx.conf.mtu_size.unwrap_or(1220),
+            ctx.conf.interface_mtu.unwrap_or(1220),
         ) {
             Ok(vpn_subnet_info) => vpn_subnet_info,
             Err(err) => {
