@@ -16,7 +16,9 @@ use crate::iptables::{
     create_vpn_config, generate_interface_subnet_and_name, iptables_cleanup,
     iptables_route_to_interface, IpTablesRule,
 };
-use crate::packet_conv::{packet_ether_to_ip_slice, packet_ip_wrap_to_ether_in_place};
+use crate::packet_conv::{
+    packet_ether_to_ip_slice, packet_ip_wrap_to_ether_in_place, MacAddressCache,
+};
 use ya_runtime_sdk::error::Error;
 use ya_runtime_sdk::server::ContainerEndpoint;
 use ya_runtime_sdk::*;
@@ -271,6 +273,13 @@ impl Runtime for GatewayRuntime {
             .emitter
             .clone()
             .expect("No emitter, Service not running in Server mode");
+
+        let ip_addr = yagna_net_ip.octets();
+
+        let mac_address = [0xA0, 0x13, ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]];
+        log::info!("Generate MAC address for node {:?}: {:?}", ip_addr, mac_address);
+        let mac_cache_ = MacAddressCache::new();
+        let mac_cache = mac_cache_.clone();
         async move {
             emitter
                 .counter(RuntimeCounter {
@@ -336,10 +345,11 @@ impl Runtime for GatewayRuntime {
                         let ether_packet = &mut buf[..14 + packet_size];
                         match packet_ip_wrap_to_ether_in_place(
                             ether_packet,
-                            None,
+                            Some(&mac_address),
                             None,
                             Some(&vpn_subnet_info.subnet.octets()),
                             Some(&yagna_net_addr.octets()),
+                            Some(mac_cache.clone())
                         ) {
                             //emitter.counter("vpn.packets.out", 1);
                             Ok(()) => {
@@ -371,6 +381,7 @@ impl Runtime for GatewayRuntime {
                     }
                 }
             });
+            let mac_cache = mac_cache_.clone();
 
             tokio::spawn(async move {
                 let mut buf_box = Box::new([0; MAX_PACKET_SIZE]); //sufficient to hold jumbo frames (probably around 9000)
@@ -388,12 +399,12 @@ impl Runtime for GatewayRuntime {
                     //log::trace!("{len:?} bytes received from {addr:?}");
                     //log::trace!("Packet content {:?}", &buf[..len]);
 
-
                     match packet_ether_to_ip_slice(
                         &mut buf[..len],
                         Some(&yagna_net_addr.octets()),
                         Some(&vpn_subnet_info.subnet.octets()),
-                        !allow_packets_to_local
+                        !allow_packets_to_local,
+                        Some(mac_cache.clone())
                     ) {
                         Ok(ip_slice) => {
                             //log::trace!("IP packet: {:?}", ip_slice);

@@ -1,5 +1,19 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use ya_relay_stack::packet::{EtherField, IpPacket, IpV4Field, PeekPacket};
 use ya_relay_stack::Error;
+
+#[derive(Debug, Default, Clone)]
+pub struct MacAddressCache {
+    pub mac_addrs: Arc<Mutex<HashMap<[u8; 4], [u8; 6]>>>,
+}
+impl MacAddressCache {
+    pub fn new() -> Self {
+        Self {
+            mac_addrs: Arc::<Mutex<HashMap<[u8; 4], [u8; 6]>>>::default(),
+        }
+    }
+}
 
 //note it only works for 255.255.255.0 subnet mask
 //returns sum for fixup of checksum
@@ -86,6 +100,7 @@ pub fn packet_ip_wrap_to_ether_in_place(
     dst_mac: Option<&[u8; 6]>,
     src_subnet: Option<&[u8; 4]>,
     dst_subnet: Option<&[u8; 4]>,
+    mac_address_cache: Option<MacAddressCache>,
 ) -> Result<(), Error> {
     if frame.len() <= 14 {
         return Err(Error::Other(
@@ -101,18 +116,19 @@ pub fn packet_ip_wrap_to_ether_in_place(
     if let Some(dst_mac) = dst_mac {
         frame[EtherField::DST_MAC].copy_from_slice(dst_mac);
     } else {
-        const DEFAULT_DST_MAC: &[u8; 6] = &[0x02, 0x02, 0x02, 0x02, 0x02, 0x02];
+        const DEFAULT_DST_MAC: &[u8; 6] = &[0x0A, 0x02, 0x02, 0x02, 0x02, 0x02];
         frame[EtherField::DST_MAC].copy_from_slice(DEFAULT_DST_MAC);
     }
     if let Some(src_mac) = src_mac {
         frame[EtherField::SRC_MAC].copy_from_slice(src_mac);
     } else {
-        const DEFAULT_SRC_MAC: &[u8; 6] = &[0x01, 0x01, 0x01, 0x01, 0x01, 0x01];
+        const DEFAULT_SRC_MAC: &[u8; 6] = &[0x0A, 0x01, 0x01, 0x01, 0x01, 0x01];
         frame[EtherField::SRC_MAC].copy_from_slice(DEFAULT_SRC_MAC);
     }
     let (ether_type, protocol, payload_off) = match IpPacket::packet(&frame[14..]) {
         IpPacket::V4(pkt) => {
             const ETHER_TYPE_IPV4: [u8; 2] = [0x08, 0x00];
+
             (ETHER_TYPE_IPV4, pkt.protocol, pkt.payload_off)
         }
         IpPacket::V6(_pkt) => {
@@ -131,6 +147,38 @@ pub fn packet_ip_wrap_to_ether_in_place(
             dst_subnet,
         )?;
     }
+    //after translation set destination mac address
+    let dst_mac = if let Some(mac_address_cache) = mac_address_cache {
+        match IpPacket::packet(&frame[14..]) {
+            IpPacket::V4(pkt) => {
+                let dst_ip: [u8; 4] = pkt.dst_address.try_into().expect("copy bytes dst_address");
+
+                let dst_mac = mac_address_cache
+                    .mac_addrs
+                    .lock()
+                    .expect("mac_addrs lock")
+                    .get(&dst_ip)
+                    .copied();
+                if dst_mac.is_none() {
+                    return Err(Error::NetAddr(
+                        "Error when wrapping IP packet: No mac address for destination IP".into(),
+                    ));
+                }
+                dst_mac
+            }
+            IpPacket::V6(_pkt) => {
+                return Err(Error::Other(
+                    "Error when wrapping IP packet: IPv6 not supported".into(),
+                ));
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(dst_mac) = dst_mac {
+        frame[EtherField::DST_MAC].copy_from_slice(&dst_mac);
+    }
+
     Ok(())
 }
 
@@ -151,6 +199,7 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
     src_subnet: Option<&'b [u8; 4]>,
     dst_subnet: Option<&'b [u8; 4]>,
     drop_to_local: bool,
+    mac_addr_cache: Option<MacAddressCache>,
 ) -> Result<&'a mut [u8], Error> {
     const MIN_IP_HEADER_LENGTH: usize = 20;
     if eth_packet.len() <= 14 + MIN_IP_HEADER_LENGTH {
@@ -159,6 +208,9 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
             eth_packet.len()
         )));
     }
+    let src_mac: [u8; 6] = eth_packet[EtherField::SRC_MAC]
+        .try_into()
+        .expect("Copy bytes into src mac");
 
     let ip_frame = &mut eth_packet[EtherField::PAYLOAD];
     if let Err(err) = IpPacket::peek(ip_frame) {
@@ -206,6 +258,44 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
                         };
                         if drop_packet {
                             return Err(Error::Forbidden);
+                        }
+                    }
+                    let src_ip: [u8; 4] = ip_frame[IpV4Field::SRC_ADDR]
+                        .try_into()
+                        .expect("Copy bytes shouldn't fail here");
+
+                    if let Some(mac_addr_cache) = mac_addr_cache {
+                        let mut hash = mac_addr_cache
+                            .mac_addrs
+                            .lock()
+                            .expect("Mutex lock cannot fail");
+
+                        let existing_mac = hash.get(&src_ip).copied();
+                        if let Some(existing_mac) = existing_mac {
+                            if existing_mac != src_mac {
+                                hash.insert(src_ip, src_mac);
+                                std::mem::drop(hash);
+                                //this log can be potentially a problem if someone floods with packets with different mac addresses
+                                //from the same ip address
+                                log::info!(
+                                    "Changing mac address ip:{:?} previous mac:{:?} new mac:{:?}",
+                                    src_ip,
+                                    existing_mac,
+                                    src_mac
+                                );
+                            } else {
+                                //do nothing = mac address is the same as in cache
+                                std::mem::drop(hash);
+                            }
+                        } else {
+                            hash.insert(src_ip, src_mac);
+                            std::mem::drop(hash);
+                            //this log is triggered only once per ip address
+                            log::info!(
+                                "Adding new mac address to cache ip:{:?} mac:{:?}",
+                                src_ip,
+                                src_mac
+                            );
                         }
                     }
                 }
@@ -271,7 +361,7 @@ mod tests {
         assert_eq!(
             hex::encode(valid_ip_packet),
             hex::encode(
-                packet_ether_to_ip_slice(valid_ether_packet.as_mut_slice(), None, None, true)
+                packet_ether_to_ip_slice(valid_ether_packet.as_mut_slice(), None, None, true, None)
                     .unwrap()
             )
         );
@@ -283,12 +373,19 @@ mod tests {
             "4500002800010000401175ba0d0f1112717375765b941a850014476f48656c6c6f205061636b6574",
         )
         .unwrap();
-        let valid_ether_packet = hex::decode("02020202020201010101010108004500002800010000401175ba0d0f1112717375765b941a850014476f48656c6c6f205061636b6574").unwrap();
+        let valid_ether_packet = hex::decode("0A02020202020A010101010108004500002800010000401175ba0d0f1112717375765b941a850014476f48656c6c6f205061636b6574").unwrap();
 
         let mut prepare_packet = vec![0u8; 14 + valid_ip_packet.len()];
         prepare_packet.as_mut_slice()[14..].copy_from_slice(valid_ip_packet.as_slice());
-        packet_ip_wrap_to_ether_in_place(prepare_packet.as_mut_slice(), None, None, None, None)
-            .unwrap();
+        packet_ip_wrap_to_ether_in_place(
+            prepare_packet.as_mut_slice(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(
             hex::encode(&valid_ether_packet),
             hex::encode(&prepare_packet)
@@ -304,6 +401,7 @@ mod tests {
             prepare_packet.as_mut_slice(),
             Some(SRC_MAC),
             Some(DST_MAC),
+            None,
             None,
             None,
         )
@@ -328,6 +426,7 @@ mod tests {
                 Some(&[13, 15, 17, 0]),
                 Some(&[10, 18, 19, 0]),
                 true,
+                None,
             )
             .unwrap();
             assert_eq!(
@@ -354,6 +453,7 @@ mod tests {
             Some(&[13, 15, 17, 0]),
             Some(&[10, 18, 19, 0]),
             true,
+            None,
         );
         assert_eq!(packet_out, Err(ya_relay_stack::Error::Forbidden));
     }
@@ -377,6 +477,7 @@ mod tests {
                 Some(&[13, 15, 17, 0]),
                 Some(&[10, 18, 19, 0]),
                 true,
+                None,
             )
             .unwrap();
 
@@ -391,6 +492,88 @@ mod tests {
             };
 
             assert_eq!(hex::encode(packet_out), hex::encode(&packet_out_ref));
+        }
+    }
+
+    #[test]
+    fn test_packet_mac_cache() {
+        {
+            env_logger::init();
+            let cache = MacAddressCache::new();
+
+            let mut packet1 = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ether({set_source => MacAddr(10,1,2,3,4,5), set_destination => MacAddr(12,2,3,4,5,6)}) /
+                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("13.15.17.12") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+            let mut packet2 = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ether({set_source => MacAddr(10,21,22,23,24,25), set_destination => MacAddr(12,2,3,4,5,6)}) /
+                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("13.15.17.12") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+
+            let packet_out1 = packet_ether_to_ip_slice(
+                packet1.as_mut_slice(),
+                Some(&[13, 15, 17, 0]),
+                Some(&[10, 18, 19, 0]),
+                true,
+                Some(cache.clone()),
+            )
+            .unwrap();
+            let packet_out2 = packet_ether_to_ip_slice(
+                packet2.as_mut_slice(),
+                Some(&[13, 15, 17, 0]),
+                Some(&[10, 18, 19, 0]),
+                true,
+                Some(cache.clone()),
+            )
+            .unwrap();
+
+            let packet_ip1 = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ipv4({set_source => ipv4addr!("10.18.19.12"), set_destination => ipv4addr!("127.0.0.1") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+            let mut vec1 = vec![0u8; 14]
+                .into_iter()
+                .chain(packet_ip1.into_iter())
+                .collect::<Vec<u8>>();
+            packet_ip_wrap_to_ether_in_place(
+                &mut vec1,
+                Some(&[44, 44, 55, 66, 77, 88]),
+                None,
+                Some(&[10, 18, 19, 0]),
+                Some(&[13, 15, 17, 0]),
+                Some(cache),
+            )
+            .unwrap();
+
+            let packet_ether_ip1 = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ether({set_source => MacAddr(44,44,55,66,77,88), set_destination => MacAddr(10,21,22,23,24,25)}) /
+                    ipv4({set_source => ipv4addr!("13.15.17.12"), set_destination => ipv4addr!("127.0.0.1") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+            //println!("packet_out1: {}", hex::encode(&vec1));
+            assert_eq!(hex::encode(&vec1), hex::encode(&packet_ether_ip1));
         }
     }
 }
