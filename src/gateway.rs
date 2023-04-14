@@ -46,6 +46,7 @@ pub struct GatewayConf {
     pub allow_packets_to_local: bool,
     pub print_packet_errors: bool,
     pub debug_log_all_packets: bool,
+    pub mtu_size: Option<u16>,
 }
 
 #[derive(Default, RuntimeDef, Clone)]
@@ -223,7 +224,10 @@ impl Runtime for GatewayRuntime {
             }
         };
 
-        let vpn_subnet_info = match generate_interface_subnet_and_name(yagna_net_ip.octets()[3]) {
+        let vpn_subnet_info = match generate_interface_subnet_and_name(
+            yagna_net_ip.octets()[3],
+            ctx.conf.mtu_size.unwrap_or(1220),
+        ) {
             Ok(vpn_subnet_info) => vpn_subnet_info,
             Err(err) => {
                 log::error!("Error when generating interface subnet and name {err:?}");
@@ -360,7 +364,6 @@ impl Runtime for GatewayRuntime {
                             Some(&yagna_net_addr.octets()),
                             Some(mac_cache.clone())
                         ) {
-                            //emitter.counter("vpn.packets.out", 1);
                             Ok(()) => {
                                 if debug_log_all_packets {
                                     log::info!("Sending packet, after wrap: {}", hex::encode(&ether_packet));

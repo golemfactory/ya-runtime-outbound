@@ -159,7 +159,10 @@ pub struct SubnetIpv4Info {
     pub mtu: u16,
 }
 
-pub fn generate_interface_subnet_and_name(ip_suffix: u8) -> std::io::Result<SubnetIpv4Info> {
+pub fn generate_interface_subnet_and_name(
+    ip_suffix: u8,
+    mtu: u16,
+) -> std::io::Result<SubnetIpv4Info> {
     let mut rng = rand::thread_rng();
     const VPN_BASE: &str = "10.94";
     const VPN_INTERFACE_NAME_BASE: &str = "vpn_10_94";
@@ -204,7 +207,7 @@ pub fn generate_interface_subnet_and_name(ip_suffix: u8) -> std::io::Result<Subn
             mask: Ipv4Addr::from_str(mask).expect("Cannot fail, invalid ip address"),
             interface_name: device_name,
             node_ip: Ipv4Addr::from_str(&node_ip).expect("Cannot fail, invalid ip address"),
-            mtu: 1200, //todo: get this from config?
+            mtu,
         };
         break si;
     };
