@@ -350,7 +350,7 @@ impl Runtime for GatewayRuntime {
                         //todo: add mac addresses
                         let ether_packet = &mut buf[..14 + packet_size];
                         if debug_log_all_packets {
-                            log::info!("Sending packet, before wrap: {}", hex::encode(&ether_packet));
+                            log::info!("Sending packet, before wrap: {}", hex::encode(&ether_packet[14..]));
                         }
                         match packet_ip_wrap_to_ether_in_place(
                             ether_packet,
