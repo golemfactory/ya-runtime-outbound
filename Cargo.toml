@@ -1,6 +1,6 @@
 [package]
 name = "ya-runtime-outbound"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Runtime for exposing outbound connections for other Nodes in Golem Network"
 authors = ["Golem Factory <contact@golem.network>"]
@@ -10,7 +10,7 @@ license = "GPL-3.0"
 readme = "README.md"
 
 [dependencies]
-ya-runtime-sdk = { version = "0.4.0", features = ["macros"] }
+ya-runtime-sdk = { version = "0.4.0", features = ["macros", "logger"] }
 #ya-runtime-sdk = { git = "https://github.com/golemfactory/ya-runtime-sdk.git", rev = "85a88e5bd76fedd9ff9904952bc256856535e3cb", features = ["macros", "logger"]}
 ya-client = { git = "https://github.com/golemfactory/ya-client.git", rev = "635f83b17bec33aca211278a9fd5734ba2c18fd6" }
 ya-relay-stack = { git = "https://github.com/golemfactory/ya-relay.git", rev = "589af1f" }
