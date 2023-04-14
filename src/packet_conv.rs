@@ -221,16 +221,11 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
         match IpPacket::packet(ip_frame) {
             IpPacket::V4(pkt) => {
                 if let (Some(src_subnet), Some(dst_subnet)) = (src_subnet, dst_subnet) {
-                    translate_packet(
-                        pkt.protocol,
-                        pkt.payload_off,
-                        ip_frame,
-                        src_subnet,
-                        dst_subnet,
-                    )?;
+                    //step1 - drop packets targeted local subnets
                     if drop_to_local {
-                        let drop_packet = if ip_frame[16..19] == dst_subnet[0..3] {
-                            //if target subnet is the same as dst_subnet then packet is allowed
+                        let drop_packet = if ip_frame[16..19] == src_subnet[0..3] {
+                            //if target subnet is the same as src_subnet then packet is allowed
+                            //it will be translated to the correct local subnet
                             false
                         } else {
                             //check if packet is targeted to any other local subnet and drop it to improve security
@@ -260,6 +255,8 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
                             return Err(Error::Forbidden);
                         }
                     }
+
+                    //step 2: add mac address to cache to build arp table
                     let src_ip: [u8; 4] = ip_frame[IpV4Field::SRC_ADDR]
                         .try_into()
                         .expect("Copy bytes shouldn't fail here");
@@ -298,6 +295,15 @@ pub fn packet_ether_to_ip_slice<'a, 'b>(
                             );
                         }
                     }
+
+                    //step 3: translate packet to local subnet used by this instance
+                    translate_packet(
+                        pkt.protocol,
+                        pkt.payload_off,
+                        ip_frame,
+                        src_subnet,
+                        dst_subnet,
+                    )?;
                 }
                 Ok(ip_frame)
             }
