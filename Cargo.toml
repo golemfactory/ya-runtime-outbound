@@ -28,9 +28,9 @@ rand = "0.8.4"
 # fork contains for now fixes to compilation on Windows and minor performance improvements
 tun = { version = "0.5.5", features = ["async"], git = "https://github.com/scx1332/golem-rust-tun.git", tag = "v0.5.6" }
 network-interface = "1.0.0"
+hex = "0.4.3"
 
 [dev-dependencies]
-hex = "0.4.3"
 packet-builder = "0.7.0"
 pnet_datalink = "0.31.0"
 pnet = "0.31.0"

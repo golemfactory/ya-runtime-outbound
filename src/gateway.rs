@@ -45,6 +45,7 @@ pub struct GatewayConf {
     pub apply_iptables_rules: bool,
     pub allow_packets_to_local: bool,
     pub print_packet_errors: bool,
+    pub debug_log_all_packets: bool,
 }
 
 #[derive(Default, RuntimeDef, Clone)]
@@ -260,6 +261,7 @@ impl Runtime for GatewayRuntime {
         let outbound_interface = ctx.conf.outbound_interface.clone();
         let apply_ip_tables_rules = ctx.conf.apply_iptables_rules;
         let print_packet_errors = ctx.conf.print_packet_errors;
+        let debug_log_all_packets = ctx.conf.debug_log_all_packets;
         if print_packet_errors {
             log::warn!("Packet errors will be printed, this may affect performance");
         }
@@ -277,7 +279,11 @@ impl Runtime for GatewayRuntime {
         let ip_addr = yagna_net_ip.octets();
 
         let mac_address = [0xA0, 0x13, ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]];
-        log::info!("Generate MAC address for node {:?}: {:?}", ip_addr, mac_address);
+        log::info!(
+            "Generate MAC address for node {:?}: {:?}",
+            ip_addr,
+            mac_address
+        );
         let mac_cache_ = MacAddressCache::new();
         let mac_cache = mac_cache_.clone();
         async move {
@@ -343,6 +349,9 @@ impl Runtime for GatewayRuntime {
                     if let Ok(packet_size) = tun_read.read(&mut buf[14..]).await {
                         //todo: add mac addresses
                         let ether_packet = &mut buf[..14 + packet_size];
+                        if debug_log_all_packets {
+                            log::info!("Sending packet, before wrap: {}", hex::encode(&ether_packet));
+                        }
                         match packet_ip_wrap_to_ether_in_place(
                             ether_packet,
                             Some(&mac_address),
@@ -353,6 +362,9 @@ impl Runtime for GatewayRuntime {
                         ) {
                             //emitter.counter("vpn.packets.out", 1);
                             Ok(()) => {
+                                if debug_log_all_packets {
+                                    log::info!("Sending packet, after wrap: {}", hex::encode(&ether_packet));
+                                }
                                 if let Err(err) = socket_.send_to(ether_packet, &vpn_endpoint).await
                                 {
                                     log::error!(
@@ -396,8 +408,9 @@ impl Runtime for GatewayRuntime {
                         continue;
                     }
 
-                    //log::trace!("{len:?} bytes received from {addr:?}");
-                    //log::trace!("Packet content {:?}", &buf[..len]);
+                    if debug_log_all_packets {
+                        log::info!("Received packet, before slice: {}", hex::encode(&buf[..len]));
+                    }
 
                     match packet_ether_to_ip_slice(
                         &mut buf[..len],
@@ -408,6 +421,10 @@ impl Runtime for GatewayRuntime {
                     ) {
                         Ok(ip_slice) => {
                             //log::trace!("IP packet: {:?}", ip_slice);
+                            if debug_log_all_packets {
+                                log::info!("Received packet, after slice: {}", hex::encode(&ip_slice));
+                            }
+
                             if let Err(err) = tun_write.write(ip_slice).await {
                                 log::error!("Error sending packet: {:?}", err);
                             } else {
