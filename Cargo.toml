@@ -1,6 +1,6 @@
 [package]
 name = "ya-runtime-outbound"
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 description = "Runtime for exposing outbound connections for other Nodes in Golem Network"
 authors = ["Golem Factory <contact@golem.network>"]
