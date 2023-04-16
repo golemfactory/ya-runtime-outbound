@@ -196,7 +196,7 @@ impl Runtime for GatewayRuntime {
             }
         };
 
-        let yagna_net_ip = match Ipv4Addr::from_str(network.if_addr.as_str()) {
+        let node_ip = match Ipv4Addr::from_str(network.if_addr.as_str()) {
             Ok(ip) => ip,
             Err(err) => {
                 log::error!("Error when parsing network ipaddr {err:?}");
@@ -226,7 +226,7 @@ impl Runtime for GatewayRuntime {
         };
 
         let vpn_subnet_info = match generate_interface_subnet_and_name(
-            yagna_net_ip.octets()[3],
+            node_ip.octets()[3],
             ctx.conf.interface_mtu.unwrap_or(1220),
         ) {
             Ok(vpn_subnet_info) => vpn_subnet_info,
@@ -281,12 +281,13 @@ impl Runtime for GatewayRuntime {
             .clone()
             .expect("No emitter, Service not running in Server mode");
 
-        let ip_addr = yagna_net_ip.octets();
-
-        let mac_address = [0xA0, 0x13, ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]];
+        let mac_address = {
+            let ip = node_ip.octets();
+            [0xA0, 0x13, ip[0], ip[1], ip[2], ip[3]]
+        };
         log::info!(
-            "Generate MAC address for node {:?}: {:?}",
-            ip_addr,
+            "Generate MAC address for node {}: {:?}",
+            node_ip,
             mac_address
         );
         let mac_cache_ = MacAddressCache::new();
@@ -449,7 +450,7 @@ impl Runtime for GatewayRuntime {
                             arp_dst[ArpField::PLEN].copy_from_slice(&arp_src[ArpField::PLEN]);
                             arp_dst[ArpField::OP].copy_from_slice(&[0x00, 0x02]); //ARP reply
                             arp_dst[ArpField::SHA].copy_from_slice(&mac_address);
-                            arp_dst[ArpField::SPA].copy_from_slice(&yagna_net_addr.octets());
+                            arp_dst[ArpField::SPA].copy_from_slice(&node_ip.octets());
                             arp_dst[ArpField::THA].copy_from_slice(&arp_src[ArpField::SHA]);
                             arp_dst[ArpField::TPA].copy_from_slice(&arp_src[ArpField::SPA]);
 
