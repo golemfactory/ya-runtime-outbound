@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use url::Url;
-use ya_relay_stack::packet::{ArpField, ArpPacket, EtherFrame, EtherType, PeekPacket};
+use ya_relay_stack::packet::{ArpField, ArpPacket, EtherField, EtherFrame, EtherType, PeekPacket};
 
 use crate::iptables::{
     create_vpn_config, generate_interface_subnet_and_name, iptables_cleanup,
@@ -430,29 +430,34 @@ impl Runtime for GatewayRuntime {
 
                     match ether_type {
                         EtherType::Arp => {
-                            if let Err(err) = ArpPacket::peek(&buf[..len]) {
+                            if let Err(err) = ArpPacket::peek(&buf[14..len]) {
                                 if print_packet_errors {
                                     log::error!("Error peeking ARP packet: {:?}", err);
                                 }
                                 continue;
                             }
 
-                            let mut resp = [0u8; 28];
-                            resp[ArpField::HTYPE].copy_from_slice(&buf[ArpField::HTYPE]);
-                            resp[ArpField::PTYPE].copy_from_slice(&buf[ArpField::PTYPE]);
-                            resp[ArpField::HLEN].copy_from_slice(&buf[ArpField::HLEN]);
-                            resp[ArpField::PLEN].copy_from_slice(&buf[ArpField::PLEN]);
-                            resp[ArpField::OP].copy_from_slice(&[0x00, 0x02]); //ARP reply
-                            resp[ArpField::SHA].copy_from_slice(&mac_address);
-                            resp[ArpField::SPA].copy_from_slice(&yagna_net_addr.octets());
-                            resp[ArpField::THA].copy_from_slice(&buf[ArpField::SHA]);
-                            resp[ArpField::TPA].copy_from_slice(&buf[ArpField::SPA]);
+                            let mut eth_resp = [0u8; 42];
+                            eth_resp[EtherField::DST_MAC].copy_from_slice(&buf[EtherField::SRC_MAC]);
+                            eth_resp[EtherField::SRC_MAC].copy_from_slice(&mac_address);
+                            eth_resp[EtherField::ETHER_TYPE].copy_from_slice(&buf[EtherField::ETHER_TYPE]); //ARP type
+                            let arp_dst = &mut eth_resp[14..];
+                            let arp_src = &mut buf[14..len];
+                            arp_dst[ArpField::HTYPE].copy_from_slice(&arp_src[ArpField::HTYPE]);
+                            arp_dst[ArpField::PTYPE].copy_from_slice(&arp_src[ArpField::PTYPE]);
+                            arp_dst[ArpField::HLEN].copy_from_slice(&arp_src[ArpField::HLEN]);
+                            arp_dst[ArpField::PLEN].copy_from_slice(&arp_src[ArpField::PLEN]);
+                            arp_dst[ArpField::OP].copy_from_slice(&[0x00, 0x02]); //ARP reply
+                            arp_dst[ArpField::SHA].copy_from_slice(&mac_address);
+                            arp_dst[ArpField::SPA].copy_from_slice(&yagna_net_addr.octets());
+                            arp_dst[ArpField::THA].copy_from_slice(&arp_src[ArpField::SHA]);
+                            arp_dst[ArpField::TPA].copy_from_slice(&arp_src[ArpField::SPA]);
 
                             if debug_log_all_packets {
-                                log::info!("Received ARP packet responding with {}", hex::encode(resp));
+                                log::info!("Received ARP packet responding with {}", hex::encode(eth_resp));
                             }
 
-                            match socket.send_to(&resp, &vpn_endpoint).await {
+                            match socket.send_to(&eth_resp, &vpn_endpoint).await {
                                 Ok(_) => {
                                 }
                                 Err(err) => {
