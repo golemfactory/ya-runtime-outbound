@@ -452,7 +452,7 @@ impl Runtime for GatewayRuntime {
                                 log::info!("Received ARP packet responding with {}", hex::encode(resp));
                             }
 
-                            match socket.send_to(buf, &vpn_endpoint).await {
+                            match socket.send_to(resp, &vpn_endpoint).await {
                                 Ok(_) => {
                                 }
                                 Err(err) => {
