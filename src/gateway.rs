@@ -437,7 +437,7 @@ impl Runtime for GatewayRuntime {
                                 continue;
                             }
 
-                            let resp = &mut [0u8; 28];
+                            let mut resp = [0u8; 28];
                             resp[ArpField::HTYPE].copy_from_slice(&buf[ArpField::HTYPE]);
                             resp[ArpField::PTYPE].copy_from_slice(&buf[ArpField::PTYPE]);
                             resp[ArpField::HLEN].copy_from_slice(&buf[ArpField::HLEN]);
@@ -452,7 +452,7 @@ impl Runtime for GatewayRuntime {
                                 log::info!("Received ARP packet responding with {}", hex::encode(resp));
                             }
 
-                            match socket.send_to(resp, &vpn_endpoint).await {
+                            match socket.send_to(&resp, &vpn_endpoint).await {
                                 Ok(_) => {
                                 }
                                 Err(err) => {
