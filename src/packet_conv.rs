@@ -501,6 +501,43 @@ mod tests {
         {
             env_logger::init();
             let cache = MacAddressCache::new();
+            let mut packet1 = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ether({set_source => MacAddr(10,1,2,3,4,5), set_destination => MacAddr(12,2,3,4,5,6)}) /
+                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("13.15.17.12") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+            let mut packet2 = {
+                let mut pkt_buf = [0u8; 1500];
+                packet_builder!(
+                    pkt_buf,
+                    ether({set_source => MacAddr(10,21,22,23,24,25), set_destination => MacAddr(12,2,3,4,5,6)}) /
+                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("13.15.17.12") }) /
+                    udp({set_source => 53, set_destination => 5353}) /
+                    payload({"hello".to_string().into_bytes()})
+                ).packet().to_vec()
+            };
+
+            let _packet_out1 = packet_ether_to_ip_slice(
+                packet1.as_mut_slice(),
+                Some(&[13, 15, 17, 0]),
+                Some(&[10, 18, 19, 0]),
+                true,
+                Some(cache.clone()),
+            )
+            .unwrap();
+            let _packet_out2 = packet_ether_to_ip_slice(
+                packet2.as_mut_slice(),
+                Some(&[13, 15, 17, 0]),
+                Some(&[10, 18, 19, 0]),
+                true,
+                Some(cache.clone()),
+            )
+            .unwrap();
 
             let packet_ip1 = {
                 let mut pkt_buf = [0u8; 1500];
