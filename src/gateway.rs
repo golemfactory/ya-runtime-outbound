@@ -11,6 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use url::Url;
+use ya_relay_stack::packet::{ArpField, ArpPacket, EtherFrame, EtherType, PeekPacket};
 
 use crate::iptables::{
     create_vpn_config, generate_interface_subnet_and_name, iptables_cleanup,
@@ -244,7 +245,7 @@ impl Runtime for GatewayRuntime {
         // TODO: I'm returning here the same endpoint, that I got from ExeUnit.
         //       In reality I should start listening on the same protocol as ExeUnit
         //       Requested and return my endpoint address here.
-        let routing = self.routing.clone();
+        //let routing = self.routing.clone();
 
         let vpn_endpoint = match &self.vpn_endpoint {
             Some(container_endpoint) => match container_endpoint {
@@ -415,46 +416,103 @@ impl Runtime for GatewayRuntime {
                         log::info!("Received packet, before slice: {}", hex::encode(&buf[..len]));
                     }
 
-                    match packet_ether_to_ip_slice(
-                        &mut buf[..len],
-                        Some(&yagna_net_addr.octets()),
-                        Some(&vpn_subnet_info.subnet.octets()),
-                        !allow_packets_to_local,
-                        Some(mac_cache.clone())
-                    ) {
-                        Ok(ip_slice) => {
-                            //log::trace!("IP packet: {:?}", ip_slice);
-                            if debug_log_all_packets {
-                                log::info!("Received packet, after slice: {}", hex::encode(&ip_slice));
+                    let ether_type = match EtherFrame::peek_type(&buf[..len]) {
+                        Ok(ether_type) => {
+                            ether_type
+                        }
+                        Err(err) => {
+                            if print_packet_errors {
+                                log::error!("Error peeking ether type: {:?}", err);
+                            }
+                            continue;
+                        }
+                    };
+
+                    match ether_type {
+                        EtherType::Arp => {
+                            if let Err(err) = ArpPacket::peek(&buf[..len]) {
+                                if print_packet_errors {
+                                    log::error!("Error peeking ARP packet: {:?}", err);
+                                }
+                                continue;
                             }
 
-                            if let Err(err) = tun_write.write(ip_slice).await {
-                                log::error!("Error sending packet: {:?}", err);
-                            } else {
-                                outbound_stats
-                                    .bytes_sent
-                                    .fetch_add(ip_slice.len() as u64, Ordering::Relaxed);
-                                outbound_stats.packets_sent.fetch_add(1, Ordering::Relaxed);
+                            let resp = &mut [0u8; 28];
+                            resp[ArpField::HTYPE].copy_from_slice(&buf[ArpField::HTYPE]);
+                            resp[ArpField::PTYPE].copy_from_slice(&buf[ArpField::PTYPE]);
+                            resp[ArpField::HLEN].copy_from_slice(&buf[ArpField::HLEN]);
+                            resp[ArpField::PLEN].copy_from_slice(&buf[ArpField::PLEN]);
+                            resp[ArpField::OP].copy_from_slice(&[0x00, 0x02]); //ARP reply
+                            resp[ArpField::SHA].copy_from_slice(&mac_address);
+                            resp[ArpField::SPA].copy_from_slice(&yagna_net_addr.octets());
+                            resp[ArpField::THA].copy_from_slice(&buf[ArpField::SHA]);
+                            resp[ArpField::TPA].copy_from_slice(&buf[ArpField::SPA]);
+
+                            if debug_log_all_packets {
+                                log::info!("Received ARP packet responding with {}", hex::encode(resp));
+                            }
+
+                            match socket.send_to(buf, &vpn_endpoint).await {
+                                Ok(_) => {
+                                }
+                                Err(err) => {
+                                    log::error!(
+                                        "Error sending ARP to udp endpoint {}: {:?}",
+                                        &vpn_endpoint,
+                                        err
+                                    );
+                                }
                             }
                         }
-                        Err(e) => {
-                            match e {
-                                ya_relay_stack::Error::Forbidden => {
-                                    outbound_stats
-                                        .packets_local_drop
-                                        .fetch_add(1, Ordering::Relaxed);
+                        EtherType::Ip => {
+                            match packet_ether_to_ip_slice(
+                                &mut buf[..len],
+                                Some(&yagna_net_addr.octets()),
+                                Some(&vpn_subnet_info.subnet.octets()),
+                                !allow_packets_to_local,
+                                Some(mac_cache.clone())
+                            ) {
+                                Ok(ip_slice) => {
+                                    //log::trace!("IP packet: {:?}", ip_slice);
+                                    if debug_log_all_packets {
+                                        log::info!("Received packet, after slice: {}", hex::encode(&ip_slice));
+                                    }
+
+                                    if let Err(err) = tun_write.write(ip_slice).await {
+                                        log::error!("Error sending packet: {:?}", err);
+                                    } else {
+                                        outbound_stats
+                                            .bytes_sent
+                                            .fetch_add(ip_slice.len() as u64, Ordering::Relaxed);
+                                        outbound_stats.packets_sent.fetch_add(1, Ordering::Relaxed);
+                                    }
                                 }
-                                _ => {
-                                    outbound_stats
-                                        .packets_error
-                                        .fetch_add(1, Ordering::Relaxed);
+                                Err(e) => {
+                                    match e {
+                                        ya_relay_stack::Error::Forbidden => {
+                                            outbound_stats
+                                                .packets_local_drop
+                                                .fetch_add(1, Ordering::Relaxed);
+                                        }
+                                        _ => {
+                                            outbound_stats
+                                                .packets_error
+                                                .fetch_add(1, Ordering::Relaxed);
+                                        }
+                                    }
+                                    if print_packet_errors {
+                                        log::error!("Error unwrapping packet: {:?}", e);
+                                    }
                                 }
                             }
+                        }
+                        _ => {
                             if print_packet_errors {
-                                log::error!("Error unwrapping packet: {:?}", e);
+                                log::error!("Unknown ether type: {:?}", ether_type);
                             }
                         }
                     }
+
                 }
             });
 
@@ -507,7 +565,7 @@ impl Runtime for GatewayRuntime {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             });
-            routing.update_network(create_network).await?;
+            //routing.update_network(create_network).await?;
             Ok(endpoint)
         }
         .boxed_local()

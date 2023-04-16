@@ -319,13 +319,8 @@ mod tests {
 
     use packet_builder::payload::PayloadData;
     use packet_builder::*;
-    use pnet::packet::icmp::IcmpTypes;
-    use pnet::packet::tcp::TcpFlags;
-    use pnet::packet::tcp::TcpOption;
     use pnet::packet::Packet;
     use pnet::util::MacAddr;
-    use pnet_datalink::Channel::Ethernet;
-    use pnet_datalink::NetworkInterface;
 
     /// Computes the checksum of an IPv4 packet in place. Not used because we are using incremental checksums.
     #[allow(dead_code)]
@@ -393,7 +388,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            hex::encode(&valid_ether_packet),
+            hex::encode(valid_ether_packet),
             hex::encode(&prepare_packet)
         );
 
@@ -413,7 +408,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            hex::encode(&valid_ether_packet2),
+            hex::encode(valid_ether_packet2),
             hex::encode(&prepare_packet)
         );
     }
@@ -436,7 +431,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                hex::encode(&packet_ip_after_translation),
+                hex::encode(packet_ip_after_translation),
                 hex::encode(packet_out)
             );
         }
@@ -487,7 +482,7 @@ mod tests {
             )
             .unwrap();
 
-            let mut packet_out_ref = {
+            let packet_out_ref = {
                 let mut pkt_buf = [0u8; 1500];
                 packet_builder!(
                     pkt_buf,
@@ -497,7 +492,7 @@ mod tests {
                 ).packet().to_vec()
             };
 
-            assert_eq!(hex::encode(packet_out), hex::encode(&packet_out_ref));
+            assert_eq!(hex::encode(packet_out), hex::encode(packet_out_ref));
         }
     }
 
@@ -506,44 +501,6 @@ mod tests {
         {
             env_logger::init();
             let cache = MacAddressCache::new();
-
-            let mut packet1 = {
-                let mut pkt_buf = [0u8; 1500];
-                packet_builder!(
-                    pkt_buf,
-                    ether({set_source => MacAddr(10,1,2,3,4,5), set_destination => MacAddr(12,2,3,4,5,6)}) /
-                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("13.15.17.12") }) /
-                    udp({set_source => 53, set_destination => 5353}) /
-                    payload({"hello".to_string().into_bytes()})
-                ).packet().to_vec()
-            };
-            let mut packet2 = {
-                let mut pkt_buf = [0u8; 1500];
-                packet_builder!(
-                    pkt_buf,
-                    ether({set_source => MacAddr(10,21,22,23,24,25), set_destination => MacAddr(12,2,3,4,5,6)}) /
-                    ipv4({set_source => ipv4addr!("127.0.0.1"), set_destination => ipv4addr!("13.15.17.12") }) /
-                    udp({set_source => 53, set_destination => 5353}) /
-                    payload({"hello".to_string().into_bytes()})
-                ).packet().to_vec()
-            };
-
-            let packet_out1 = packet_ether_to_ip_slice(
-                packet1.as_mut_slice(),
-                Some(&[13, 15, 17, 0]),
-                Some(&[10, 18, 19, 0]),
-                true,
-                Some(cache.clone()),
-            )
-            .unwrap();
-            let packet_out2 = packet_ether_to_ip_slice(
-                packet2.as_mut_slice(),
-                Some(&[13, 15, 17, 0]),
-                Some(&[10, 18, 19, 0]),
-                true,
-                Some(cache.clone()),
-            )
-            .unwrap();
 
             let packet_ip1 = {
                 let mut pkt_buf = [0u8; 1500];
@@ -579,7 +536,7 @@ mod tests {
                 ).packet().to_vec()
             };
             //println!("packet_out1: {}", hex::encode(&vec1));
-            assert_eq!(hex::encode(&vec1), hex::encode(&packet_ether_ip1));
+            assert_eq!(hex::encode(&vec1), hex::encode(packet_ether_ip1));
         }
     }
 }

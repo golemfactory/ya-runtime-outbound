@@ -26,6 +26,7 @@ pub struct RoutingTableImpl {
 }
 
 impl RoutingTable {
+    #[allow(dead_code)]
     pub async fn update_network(&self, update: CreateNetwork) -> Result<(), Error> {
         match NetworkInterface::from_i32(update.interface) {
             Some(NetworkInterface::Vpn) => (),
@@ -92,10 +93,10 @@ mod tests {
             .read()
             .await
             .networks
-            .get(&IpAddr::from_str(&network).unwrap())
+            .get(&IpAddr::from_str(network).unwrap())
             .unwrap()
             .nodes
-            .get(&IpAddr::from_str(&node).unwrap())
+            .get(&IpAddr::from_str(node).unwrap())
             .cloned()
     }
 
